@@ -92,7 +92,7 @@ def _send(token: str, chat_id: str, text: str, thread_id: str | None = None) -> 
 
 
 def _now_utc() -> str:
-    return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    return datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
 
 
 def _duration(first_seen_ts: str, now: datetime) -> str | None:

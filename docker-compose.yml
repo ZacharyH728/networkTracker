@@ -11,3 +11,4 @@ services:
       - ./data:/app/data     # persist SQLite database outside the container
     environment:
       - PYTHONUNBUFFERED=1
+      - TZ=Etc/UTC
