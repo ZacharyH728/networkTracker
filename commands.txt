@@ -1,0 +1,10 @@
+  # See all known devices                                                       
+  docker compose exec network-tracker python -m network_tracker.cli list        
+  
+  # Assign a nickname                                                           
+  docker compose exec network-tracker python -m network_tracker.cli label
+  aa:bb:cc:dd:ee:ff "Zachary's iPhone"                                          
+                                                            
+  # Remove a nickname
+  docker compose exec network-tracker python -m network_tracker.cli unlabel
+  aa:bb:cc:dd:ee:ff   
