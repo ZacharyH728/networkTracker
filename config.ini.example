@@ -19,3 +19,8 @@ path = data/tracker.db
 
 [logging]
 level = INFO
+
+[vendor_grace]
+# Vendor prefix (case-insensitive) -> grace period in seconds
+# Apple devices sleep aggressively; give them 1 hour before marking as left
+Apple = 3600

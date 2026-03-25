@@ -31,8 +31,19 @@ def main() -> None:
     chat_id       = cfg.get("telegram", "chat_id", fallback="")
     thread_id     = cfg.get("telegram", "thread_id", fallback="") or None
 
+    # Load per-vendor grace period overrides
+    vendor_graces = {}
+    if cfg.has_section("vendor_grace"):
+        for prefix, val in cfg.items("vendor_grace"):
+            try:
+                vendor_graces[prefix.lower()] = int(val)
+            except ValueError:
+                log.warning("Invalid vendor_grace value for %s: %s", prefix, val)
+
     log.info("Starting network tracker | CIDR=%s | interval=%ds | grace=%ds",
              cidr, scan_interval, offline_grace)
+    if vendor_graces:
+        log.info("Per-vendor grace periods: %s", vendor_graces)
 
     while True:
         try:
@@ -42,7 +53,8 @@ def main() -> None:
 
             online_before = db.get_online_devices(conn)
             joins, leaves = events.compute_events(
-                results, online_before, offline_grace, now, vendor.lookup
+                results, online_before, offline_grace, now, vendor.lookup,
+                vendor_graces=vendor_graces
             )
 
             with conn:
