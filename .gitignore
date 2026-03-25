@@ -1,0 +1,11 @@
+config.ini
+.env
+data/
+*.log
+*.err
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.DS_Store

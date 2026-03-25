@@ -1,0 +1,13 @@
+services:
+  network-tracker:
+    build: .
+    restart: unless-stopped
+    network_mode: host       # required — ARP scans need access to the real LAN interface
+    cap_add:
+      - NET_RAW              # raw socket access for Scapy ARP packets
+      - NET_ADMIN            # needed to interact with ARP table
+    env_file: .env
+    volumes:
+      - ./data:/app/data     # persist SQLite database outside the container
+    environment:
+      - PYTHONUNBUFFERED=1

@@ -1,0 +1,21 @@
+[telegram]
+# Leave blank — override via TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID env vars
+# or fill in directly (but don't commit this file with real tokens)
+bot_token  =
+chat_id    =
+# Optional: send to a specific thread/topic inside a group.
+# Right-click a message in the thread → Copy Link → the last number in the URL.
+thread_id  =
+
+[network]
+# CIDR range to scan. Examples: 192.168.1.0/24  10.0.0.0/24  172.16.0.0/24
+cidr           = 192.168.1.0/24
+scan_interval  = 60    ; seconds between scans
+scan_timeout   = 3     ; seconds to wait for ARP replies per scan cycle
+offline_grace  = 180   ; seconds before a non-responding device is marked as left
+
+[database]
+path = data/tracker.db
+
+[logging]
+level = INFO
