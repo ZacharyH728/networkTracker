@@ -74,8 +74,12 @@ def _send(token: str, chat_id: str, text: str, thread_id: str | None = None) -> 
         logger.warning("Telegram not configured — skipping notification")
         return
     payload: dict = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
-    if thread_id:
-        payload["message_thread_id"] = int(thread_id)
+    if thread_id and thread_id.strip():
+        try:
+            payload["message_thread_id"] = int(thread_id)
+            logger.debug("Sending to thread %s", thread_id)
+        except ValueError:
+            logger.error("Invalid thread_id: %s", thread_id)
     try:
         resp = httpx.post(
             _BOT_API.format(token=token),
