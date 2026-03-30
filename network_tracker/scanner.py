@@ -59,6 +59,28 @@ def _reverse_dns(ip: str) -> str | None:
         return None
 
 
+def sniff_arp(callback) -> None:
+    """Passively sniff ARP packets and call callback(ip, mac) for each sender seen.
+
+    Runs indefinitely — intended to be called from a daemon thread.
+    Requires root / NET_RAW capability (same as active scanning).
+    """
+    from scapy.layers.l2 import ARP
+    from scapy.sendrecv import sniff as scapy_sniff
+
+    def _handle(pkt):
+        if ARP in pkt:
+            arp = pkt[ARP]
+            # Both ARP requests (op=1) and replies (op=2) carry the sender's real IP/MAC.
+            if arp.psrc != "0.0.0.0":
+                try:
+                    callback(arp.psrc, arp.hwsrc.lower())
+                except Exception:
+                    pass
+
+    scapy_sniff(filter="arp", prn=_handle, store=False)
+
+
 def _arp_cache_fallback() -> list[ScanResult]:
     """Parse the system ARP cache (no root required, but may be stale/incomplete)."""
     import subprocess

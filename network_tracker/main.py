@@ -1,8 +1,15 @@
 import logging
+import threading
 import time
 from datetime import datetime
 
 from . import config, db, scanner, vendor, events, mac_history, notifier
+
+# MACs that the sniffer thread has already sent a join notification for.
+# The main scan loop checks this to avoid sending a duplicate notification
+# if the scanner also happens to detect the same device in its next cycle.
+_sniff_notified: set[str] = set()
+_sniff_lock = threading.Lock()
 
 
 def setup_logging(level: str) -> None:
@@ -11,6 +18,49 @@ def setup_logging(level: str) -> None:
         format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
         datefmt="%Y-%m-%dT%H:%M:%SZ",
     )
+
+
+def _run_sniffer(db_path, bot_token, chat_id, thread_id, scan_interval):
+    """Background thread: passively sniff ARP and fire join notifications immediately."""
+    log = logging.getLogger(__name__ + ".sniffer")
+    # Own connection — WAL mode allows concurrent reads/writes from multiple connections.
+    conn = db.initialize(db_path)
+    log.info("ARP sniffer started")
+
+    def on_arp(ip, mac):
+        # Fast path: skip devices already known as online.
+        row = conn.execute(
+            "SELECT is_online FROM devices WHERE mac = ?", (mac,)
+        ).fetchone()
+        if row and row["is_online"]:
+            return
+
+        now = datetime.utcnow()
+        v = vendor.lookup(mac)
+        hostname = scanner._reverse_dns(ip)
+
+        with conn:
+            db.upsert_device(conn, mac, ip, hostname, v, now)
+            db.upsert_mac_ip_history(conn, mac, ip, now)
+            mac_history.check_and_record_aliases(conn, ip, mac, now, scan_interval, hostname)
+            db.log_event(conn, mac, ip, "join", now, hostname)
+
+        label = db.get_label(conn, mac)
+        aliases = db.get_aliases_for_mac(conn, mac)
+        log.info("JOIN (sniff) %s  %s  %s%s", mac, ip, hostname or "",
+                 f"  [{label}]" if label else "")
+
+        j = events.JoinEvent(mac=mac, ip=ip, hostname=hostname, vendor=v)
+        with _sniff_lock:
+            _sniff_notified.add(mac)
+        notifier.notify_join(bot_token, chat_id, j, aliases, label=label, thread_id=thread_id)
+
+    try:
+        scanner.sniff_arp(on_arp)
+    except PermissionError:
+        log.warning("ARP sniffing requires root/NET_RAW — passive detection disabled")
+    except Exception:
+        log.exception("ARP sniffer failed")
 
 
 def main() -> None:
@@ -44,6 +94,15 @@ def main() -> None:
              cidr, scan_interval, offline_grace)
     if vendor_graces:
         log.info("Per-vendor grace periods: %s", vendor_graces)
+
+    # Start passive ARP sniffer in a daemon thread for instant join detection.
+    sniffer = threading.Thread(
+        target=_run_sniffer,
+        args=(db_path, bot_token, chat_id, thread_id, scan_interval),
+        daemon=True,
+        name="arp-sniffer",
+    )
+    sniffer.start()
 
     while True:
         try:
@@ -88,9 +147,16 @@ def main() -> None:
                     label = db.get_label(conn, j.mac)
                     log.info("JOIN  %s  %s  %s%s", j.mac, j.ip, j.hostname or "",
                              f"  [{label}]" if label else "")
-                    if j.mac not in suppressed_joins:
-                        aliases = db.get_aliases_for_mac(conn, j.mac)
-                        notifier.notify_join(bot_token, chat_id, j, aliases, label=label, thread_id=thread_id)
+                    if j.mac in suppressed_joins:
+                        continue
+                    # Skip if the sniffer already sent a notification for this device.
+                    with _sniff_lock:
+                        if j.mac in _sniff_notified:
+                            _sniff_notified.discard(j.mac)
+                            log.debug("JOIN %s already notified by sniffer — skipping", j.mac)
+                            continue
+                    aliases = db.get_aliases_for_mac(conn, j.mac)
+                    notifier.notify_join(bot_token, chat_id, j, aliases, label=label, thread_id=thread_id)
 
                 # Process leaves
                 for l in leaves:
