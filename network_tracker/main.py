@@ -20,7 +20,19 @@ def setup_logging(level: str) -> None:
     )
 
 
-def _run_sniffer(db_path, bot_token, chat_id, thread_id, scan_interval):
+def _recently_left(conn, mac: str, now: datetime, window_seconds: int) -> bool:
+    """Return True if this MAC had a leave event within the last window_seconds."""
+    last_leave = db.get_last_leave_time(conn, mac)
+    if not last_leave:
+        return False
+    try:
+        leave_dt = datetime.strptime(last_leave, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return False
+    return (now - leave_dt).total_seconds() < window_seconds
+
+
+def _run_sniffer(db_path, bot_token, chat_id, thread_id, scan_interval, rejoin_window):
     """Background thread: passively sniff ARP and fire join notifications immediately."""
     log = logging.getLogger(__name__ + ".sniffer")
     # Own connection — WAL mode allows concurrent reads/writes from multiple connections.
@@ -46,10 +58,16 @@ def _run_sniffer(db_path, bot_token, chat_id, thread_id, scan_interval):
             db.log_event(conn, mac, ip, "join", now, hostname)
 
         label = db.get_label(conn, mac)
-        aliases = db.get_aliases_for_mac(conn, mac)
         log.info("JOIN (sniff) %s  %s  %s%s", mac, ip, hostname or "",
                  f"  [{label}]" if label else "")
 
+        if _recently_left(conn, mac, now, rejoin_window):
+            log.info("JOIN (sniff) %s suppressed — rejoined within %ds of leaving", mac, rejoin_window)
+            with _sniff_lock:
+                _sniff_notified.add(mac)  # prevent scanner from notifying too
+            return
+
+        aliases = db.get_aliases_for_mac(conn, mac)
         j = events.JoinEvent(mac=mac, ip=ip, hostname=hostname, vendor=v)
         with _sniff_lock:
             _sniff_notified.add(mac)
@@ -76,8 +94,9 @@ def main() -> None:
     cidr          = cfg.get("network", "cidr", fallback="192.168.1.0/24")
     scan_interval = cfg.getint("network", "scan_interval", fallback=60)
     scan_timeout  = cfg.getfloat("network", "scan_timeout", fallback=3.0)
-    offline_grace = cfg.getint("network", "offline_grace", fallback=180)
-    bot_token     = cfg.get("telegram", "bot_token", fallback="")
+    offline_grace  = cfg.getint("network", "offline_grace", fallback=180)
+    rejoin_window  = cfg.getint("network", "rejoin_window", fallback=offline_grace * 2)
+    bot_token      = cfg.get("telegram", "bot_token", fallback="")
     chat_id       = cfg.get("telegram", "chat_id", fallback="")
     thread_id     = cfg.get("telegram", "thread_id", fallback="") or None
 
@@ -98,7 +117,7 @@ def main() -> None:
     # Start passive ARP sniffer in a daemon thread for instant join detection.
     sniffer = threading.Thread(
         target=_run_sniffer,
-        args=(db_path, bot_token, chat_id, thread_id, scan_interval),
+        args=(db_path, bot_token, chat_id, thread_id, scan_interval, rejoin_window),
         daemon=True,
         name="arp-sniffer",
     )
@@ -155,6 +174,10 @@ def main() -> None:
                             _sniff_notified.discard(j.mac)
                             log.debug("JOIN %s already notified by sniffer — skipping", j.mac)
                             continue
+                    # Skip if the device rejoined too soon after leaving (same MAC, flap).
+                    if _recently_left(conn, j.mac, now, rejoin_window):
+                        log.info("JOIN %s suppressed — rejoined within %ds of leaving", j.mac, rejoin_window)
+                        continue
                     aliases = db.get_aliases_for_mac(conn, j.mac)
                     notifier.notify_join(bot_token, chat_id, j, aliases, label=label, thread_id=thread_id)
 

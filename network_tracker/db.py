@@ -209,6 +209,16 @@ def get_aliases_for_mac(
     return result
 
 
+def get_last_leave_time(conn: sqlite3.Connection, mac: str) -> str | None:
+    """Return the timestamp of the most recent leave event for this MAC, or None."""
+    row = conn.execute(
+        "SELECT timestamp FROM events WHERE mac = ? AND event_type = 'leave' "
+        "ORDER BY timestamp DESC LIMIT 1",
+        (mac,),
+    ).fetchone()
+    return row["timestamp"] if row else None
+
+
 def get_device_first_seen(conn: sqlite3.Connection, mac: str) -> str | None:
     row = conn.execute(
         "SELECT first_seen FROM devices WHERE mac = ?", (mac,)
