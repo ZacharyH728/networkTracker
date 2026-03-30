@@ -67,14 +67,30 @@ def main() -> None:
                         conn, r.ip, r.mac, now, scan_interval, r.hostname
                     )
 
+                # Suppress notifications for join/leave pairs that are high-confidence
+                # aliases of each other — the device just changed its address.
+                leave_macs = {l.mac for l in leaves}
+                suppressed_joins: set[str] = set()
+                suppressed_leaves: set[str] = set()
+                for j in joins:
+                    for alias in db.get_aliases_for_mac(conn, j.mac):
+                        if alias["mac"] in leave_macs:
+                            suppressed_joins.add(j.mac)
+                            suppressed_leaves.add(alias["mac"])
+                            log.info(
+                                "Address change detected: %s -> %s (confidence %.0f%%) — suppressing notifications",
+                                alias["mac"], j.mac, alias["confidence"] * 100,
+                            )
+
                 # Process joins
                 for j in joins:
                     db.log_event(conn, j.mac, j.ip, "join", now, j.hostname)
                     label = db.get_label(conn, j.mac)
                     log.info("JOIN  %s  %s  %s%s", j.mac, j.ip, j.hostname or "",
                              f"  [{label}]" if label else "")
-                    aliases = db.get_aliases_for_mac(conn, j.mac)
-                    notifier.notify_join(bot_token, chat_id, j, aliases, label=label, thread_id=thread_id)
+                    if j.mac not in suppressed_joins:
+                        aliases = db.get_aliases_for_mac(conn, j.mac)
+                        notifier.notify_join(bot_token, chat_id, j, aliases, label=label, thread_id=thread_id)
 
                 # Process leaves
                 for l in leaves:
@@ -83,8 +99,9 @@ def main() -> None:
                     label = db.get_label(conn, l.mac)
                     log.info("LEAVE %s  %s  %s%s", l.mac, l.ip, l.hostname or "",
                              f"  [{label}]" if label else "")
-                    aliases = db.get_aliases_for_mac(conn, l.mac)
-                    notifier.notify_leave(bot_token, chat_id, l, aliases, now, label=label, thread_id=thread_id)
+                    if l.mac not in suppressed_leaves:
+                        aliases = db.get_aliases_for_mac(conn, l.mac)
+                        notifier.notify_leave(bot_token, chat_id, l, aliases, now, label=label, thread_id=thread_id)
 
             elapsed = (datetime.utcnow() - now).total_seconds()
             sleep_for = max(0.0, scan_interval - elapsed)
