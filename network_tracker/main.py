@@ -203,6 +203,9 @@ def main() -> None:
                         aliases = db.get_aliases_for_mac(conn, l.mac)
                         notifier.notify_leave(bot_token, chat_id, l, aliases, now, label=label, thread_id=thread_id)
 
+            with conn:
+                db.set_meta(conn, 'last_scan', db._ts(now))
+
             elapsed = (datetime.utcnow() - now).total_seconds()
             sleep_for = max(0.0, scan_interval - elapsed)
             log.debug("Cycle done in %.1fs, sleeping %.1fs", elapsed, sleep_for)

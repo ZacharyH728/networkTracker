@@ -57,7 +57,6 @@
     .stat-offline { color: var(--dim); }
 
     #refresh-status {
-      margin-left: auto;
       font-size: 11px;
       color: var(--dim);
       white-space: nowrap;
@@ -376,6 +375,26 @@
       font-size: 13px;
     }
 
+    .drawer-foot {
+      padding: 12px 20px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    .btn-hide {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--dim);
+      cursor: pointer;
+      font-size: 12px;
+      padding: 5px 12px;
+    }
+
+    .btn-hide:hover { border-color: var(--red); color: var(--red); }
+    .btn-hide.hidden-on { border-color: var(--yellow); color: var(--yellow); }
+
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
@@ -404,7 +423,10 @@
       <span id="count-total">—</span> total
     </span>
   </div>
-  <span id="refresh-status">Loading…</span>
+  <div style="margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:2px">
+    <span id="refresh-status" style="font-size:11px;color:var(--dim);white-space:nowrap">Loading…</span>
+    <span id="scan-status" style="font-size:11px;color:var(--dim);white-space:nowrap"></span>
+  </div>
 </header>
 
 <div class="toolbar">
@@ -418,6 +440,10 @@
   <label class="toggle-wrap">
     <div id="online-toggle" class="toggle"></div>
     Online only
+  </label>
+  <label class="toggle-wrap">
+    <div id="hidden-toggle" class="toggle"></div>
+    Show hidden
   </label>
   <button class="btn" id="refresh-btn" onclick="refresh()">Refresh</button>
 </div>
@@ -455,26 +481,41 @@
   </div>
   <div class="drawer-body" id="drawer-body">
   </div>
+  <div class="drawer-foot">
+    <button class="btn-hide" id="hide-btn">Hide device</button>
+  </div>
 </div>
 
 <script>
   let devices = [];
   let onlineOnly = false;
+  let showHidden = false;
   let refreshTimer = null;
   let sortCol = 'status';
   let sortDir = 'asc';
+  let drawerDevice = null;
 
   // ── Fetch & render ────────────────────────────────────────────────
+
+  let lastScanTs = null;
 
   async function refresh() {
     document.getElementById('refresh-status').textContent = 'Refreshing…';
     try {
-      const res = await fetch('/api/devices');
-      if (!res.ok) throw new Error(res.statusText);
-      devices = await res.json();
+      const [devRes, statusRes] = await Promise.all([
+        fetch('/api/devices'),
+        fetch('/api/status'),
+      ]);
+      if (!devRes.ok) throw new Error(devRes.statusText);
+      devices = await devRes.json();
       renderTable();
       document.getElementById('refresh-status').textContent =
         'Updated ' + fmtRel(new Date().toISOString());
+      if (statusRes.ok) {
+        const status = await statusRes.json();
+        lastScanTs = status.last_scan;
+        updateScanStatus();
+      }
     } catch (e) {
       document.getElementById('refresh-status').textContent = 'Error – ' + e.message;
     }
@@ -482,11 +523,20 @@
     refreshTimer = setTimeout(refresh, 30_000);
   }
 
+  function updateScanStatus() {
+    const el = document.getElementById('scan-status');
+    if (lastScanTs) {
+      el.textContent = 'Scanned ' + fmtRel(lastScanTs);
+      el.title = absTime(lastScanTs);
+    }
+  }
+
   function renderTable() {
     const query  = document.getElementById('search').value.toLowerCase().trim();
     const tbody  = document.getElementById('tbody');
 
     const filtered = devices.filter(d => {
+      if (d.hidden && !showHidden) return false;
       if (onlineOnly && !d.is_online) return false;
       if (!query) return true;
       return [d.mac, d.ip, d.hostname, d.vendor, d.label]
@@ -623,8 +673,12 @@
   // ── Drawer ────────────────────────────────────────────────────────
 
   function openDrawer(d) {
+    drawerDevice = d;
     document.getElementById('drawer-name').textContent = d.label || d.ip;
     document.getElementById('drawer-mac').textContent  = d.mac;
+    const hideBtn = document.getElementById('hide-btn');
+    hideBtn.textContent = d.hidden ? 'Unhide device' : 'Hide device';
+    hideBtn.classList.toggle('hidden-on', !!d.hidden);
     document.getElementById('overlay').classList.add('open');
     document.getElementById('drawer').classList.add('open');
     loadEvents(d.mac);
@@ -726,6 +780,28 @@
     renderTable();
   });
 
+  document.getElementById('hidden-toggle').addEventListener('click', function () {
+    showHidden = !showHidden;
+    this.classList.toggle('on', showHidden);
+    renderTable();
+  });
+
+  document.getElementById('hide-btn').addEventListener('click', async function () {
+    if (!drawerDevice) return;
+    const newHidden = !drawerDevice.hidden;
+    try {
+      await fetch(`/api/devices/${encodeURIComponent(drawerDevice.mac)}/hidden`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hidden: newHidden }),
+      });
+      drawerDevice.hidden = newHidden ? 1 : 0;
+      this.textContent = newHidden ? 'Unhide device' : 'Hide device';
+      this.classList.toggle('hidden-on', newHidden);
+      renderTable();
+    } catch (_) {}
+  });
+
   document.getElementById('overlay').addEventListener('click', closeDrawer);
   document.getElementById('close-btn').addEventListener('click', closeDrawer);
 
@@ -742,6 +818,7 @@
       document.getElementById('refresh-status').textContent =
         'Updated ' + fmtRel(new Date(now - (now % 30_000)).toISOString());
     }
+    updateScanStatus();
   }, 60_000);
 
   refresh();

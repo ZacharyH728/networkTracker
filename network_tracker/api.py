@@ -28,12 +28,18 @@ def get_db():
         conn.close()
 
 
+@app.get("/api/status")
+def get_status(conn: sqlite3.Connection = Depends(get_db)):
+    row = conn.execute("SELECT value FROM metadata WHERE key = 'last_scan'").fetchone()
+    return {"last_scan": row["value"] if row else None}
+
+
 @app.get("/api/devices")
 def list_devices(conn: sqlite3.Connection = Depends(get_db)):
     rows = conn.execute(
         """
         SELECT
-            d.mac, d.ip, d.hostname, d.vendor, d.label,
+            d.mac, d.ip, d.hostname, d.vendor, d.label, d.hidden,
             d.is_online, d.first_seen, d.last_seen,
             (SELECT timestamp FROM events
              WHERE mac = d.mac AND event_type = 'join'
@@ -86,3 +92,19 @@ def remove_label(mac: str, conn: sqlite3.Connection = Depends(get_db)):
     with conn:
         conn.execute("UPDATE devices SET label = NULL WHERE mac = ?", (mac,))
     return {"mac": mac, "label": None}
+
+
+class HiddenBody(BaseModel):
+    hidden: bool
+
+
+@app.put("/api/devices/{mac}/hidden")
+def set_hidden(
+    mac: str, body: HiddenBody, conn: sqlite3.Connection = Depends(get_db)
+):
+    mac = mac.lower()
+    if not conn.execute("SELECT 1 FROM devices WHERE mac = ?", (mac,)).fetchone():
+        raise HTTPException(status_code=404, detail="Device not found")
+    with conn:
+        conn.execute("UPDATE devices SET hidden = ? WHERE mac = ?", (1 if body.hidden else 0, mac))
+    return {"mac": mac, "hidden": body.hidden}

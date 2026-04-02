@@ -57,6 +57,11 @@ def _create_schema(conn: sqlite3.Connection) -> None:
             UNIQUE(mac, ip)
         );
 
+        CREATE TABLE IF NOT EXISTS metadata (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_events_mac     ON events(mac);
         CREATE INDEX IF NOT EXISTS idx_events_ts      ON events(timestamp);
         CREATE INDEX IF NOT EXISTS idx_mac_ip_hist_ip ON mac_ip_history(ip);
@@ -69,6 +74,12 @@ def _migrate(conn: sqlite3.Connection) -> None:
     # Add label column to existing databases that predate this feature
     try:
         conn.execute("ALTER TABLE devices ADD COLUMN label TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # column already exists
+
+    try:
+        conn.execute("ALTER TABLE devices ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0")
         conn.commit()
     except sqlite3.OperationalError:
         pass  # column already exists
@@ -243,6 +254,18 @@ def propagate_label(conn: sqlite3.Connection, mac_a: str, mac_b: str) -> None:
         set_label(conn, mac_b, label_a)
     elif label_b and not label_a:
         set_label(conn, mac_a, label_b)
+
+
+def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
+    conn.execute(
+        "INSERT INTO metadata (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
+
+
+def get_meta(conn: sqlite3.Connection, key: str) -> str | None:
+    row = conn.execute("SELECT value FROM metadata WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
 
 
 def get_all_devices(conn: sqlite3.Connection) -> list[dict]:
