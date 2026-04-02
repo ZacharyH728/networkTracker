@@ -40,28 +40,37 @@ def _run_sniffer(db_path, bot_token, chat_id, thread_id, scan_interval, rejoin_w
     log.info("ARP sniffer started")
 
     def on_arp(ip, mac):
-        # Fast path: skip devices already known as online.
+        now = datetime.utcnow()
         row = conn.execute(
             "SELECT is_online FROM devices WHERE mac = ?", (mac,)
         ).fetchone()
+
         if row and row["is_online"]:
+            # Device already online — refresh last_seen so the scanner's grace
+            # period doesn't expire just because the active scan missed it.
+            with conn:
+                conn.execute(
+                    "UPDATE devices SET last_seen = ?, ip = ? WHERE mac = ?",
+                    (now.strftime("%Y-%m-%dT%H:%M:%SZ"), ip, mac),
+                )
             return
 
-        now = datetime.utcnow()
         v = vendor.lookup(mac)
         hostname = scanner._reverse_dns(ip)
+        recently_left = _recently_left(conn, mac, now, rejoin_window)
 
         with conn:
             db.upsert_device(conn, mac, ip, hostname, v, now)
             db.upsert_mac_ip_history(conn, mac, ip, now)
             mac_history.check_and_record_aliases(conn, ip, mac, now, scan_interval, hostname)
-            db.log_event(conn, mac, ip, "join", now, hostname)
+            if not recently_left:
+                db.log_event(conn, mac, ip, "join", now, hostname)
 
         label = db.get_label(conn, mac)
         log.info("JOIN (sniff) %s  %s  %s%s", mac, ip, hostname or "",
                  f"  [{label}]" if label else "")
 
-        if _recently_left(conn, mac, now, rejoin_window):
+        if recently_left:
             log.info("JOIN (sniff) %s suppressed — rejoined within %ds of leaving", mac, rejoin_window)
             with _sniff_lock:
                 _sniff_notified.add(mac)  # prevent scanner from notifying too
@@ -162,7 +171,9 @@ def main() -> None:
 
                 # Process joins
                 for j in joins:
-                    db.log_event(conn, j.mac, j.ip, "join", now, j.hostname)
+                    recently_left = _recently_left(conn, j.mac, now, rejoin_window)
+                    if not recently_left:
+                        db.log_event(conn, j.mac, j.ip, "join", now, j.hostname)
                     label = db.get_label(conn, j.mac)
                     log.info("JOIN  %s  %s  %s%s", j.mac, j.ip, j.hostname or "",
                              f"  [{label}]" if label else "")
@@ -175,7 +186,7 @@ def main() -> None:
                             log.debug("JOIN %s already notified by sniffer — skipping", j.mac)
                             continue
                     # Skip if the device rejoined too soon after leaving (same MAC, flap).
-                    if _recently_left(conn, j.mac, now, rejoin_window):
+                    if recently_left:
                         log.info("JOIN %s suppressed — rejoined within %ds of leaving", j.mac, rejoin_window)
                         continue
                     aliases = db.get_aliases_for_mac(conn, j.mac)

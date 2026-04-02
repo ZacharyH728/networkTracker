@@ -5,6 +5,15 @@ from . import db
 logger = logging.getLogger(__name__)
 
 
+def _alias_confidence(conn, mac_a: str, mac_b: str) -> float:
+    mac_a, mac_b = sorted([mac_a, mac_b])
+    row = conn.execute(
+        "SELECT confidence FROM mac_aliases WHERE mac_a = ? AND mac_b = ?",
+        (mac_a, mac_b),
+    ).fetchone()
+    return row["confidence"] if row else 0.0
+
+
 def check_and_record_aliases(
     conn,
     ip: str,
@@ -23,7 +32,8 @@ def check_and_record_aliases(
             "MAC rotation candidate: %s and %s both used IP %s", mac, sibling, ip
         )
         db.upsert_alias(conn, mac, sibling, "same_ip_sequential", 0.1, now)
-        db.propagate_label(conn, mac, sibling)
+        if _alias_confidence(conn, mac, sibling) >= 0.8:
+            db.propagate_label(conn, mac, sibling)
 
     # Look for devices with the same hostname (another rotation signal)
     if hostname:
@@ -34,4 +44,5 @@ def check_and_record_aliases(
                 mac, sibling, hostname,
             )
             db.upsert_alias(conn, mac, sibling, "same_hostname", 0.2, now)
-            db.propagate_label(conn, mac, sibling)
+            if _alias_confidence(conn, mac, sibling) >= 0.8:
+                db.propagate_label(conn, mac, sibling)
