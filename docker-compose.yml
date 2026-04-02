@@ -31,4 +31,4 @@ services:
       dockerfile: Dockerfile.frontend
     restart: unless-stopped
     ports:
-      - "80:80"
+      - "8021:80"

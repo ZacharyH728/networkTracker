@@ -246,6 +246,11 @@ def get_label(conn: sqlite3.Connection, mac: str) -> str | None:
     return row["label"] if row else None
 
 
+def is_hidden(conn: sqlite3.Connection, mac: str) -> bool:
+    row = conn.execute("SELECT hidden FROM devices WHERE mac = ?", (mac,)).fetchone()
+    return bool(row["hidden"]) if row else False
+
+
 def propagate_label(conn: sqlite3.Connection, mac_a: str, mac_b: str) -> None:
     """Copy label from whichever MAC has one to the one that doesn't."""
     label_a = get_label(conn, mac_a)

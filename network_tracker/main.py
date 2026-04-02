@@ -76,6 +76,10 @@ def _run_sniffer(db_path, bot_token, chat_id, thread_id, scan_interval, rejoin_w
                 _sniff_notified.add(mac)  # prevent scanner from notifying too
             return
 
+        if db.is_hidden(conn, mac):
+            log.debug("JOIN (sniff) %s suppressed — device is hidden", mac)
+            return
+
         aliases = db.get_aliases_for_mac(conn, mac)
         j = events.JoinEvent(mac=mac, ip=ip, hostname=hostname, vendor=v)
         with _sniff_lock:
@@ -189,6 +193,9 @@ def main() -> None:
                     if recently_left:
                         log.info("JOIN %s suppressed — rejoined within %ds of leaving", j.mac, rejoin_window)
                         continue
+                    if db.is_hidden(conn, j.mac):
+                        log.debug("JOIN %s suppressed — device is hidden", j.mac)
+                        continue
                     aliases = db.get_aliases_for_mac(conn, j.mac)
                     notifier.notify_join(bot_token, chat_id, j, aliases, label=label, thread_id=thread_id)
 
@@ -199,7 +206,7 @@ def main() -> None:
                     label = db.get_label(conn, l.mac)
                     log.info("LEAVE %s  %s  %s%s", l.mac, l.ip, l.hostname or "",
                              f"  [{label}]" if label else "")
-                    if l.mac not in suppressed_leaves:
+                    if l.mac not in suppressed_leaves and not db.is_hidden(conn, l.mac):
                         aliases = db.get_aliases_for_mac(conn, l.mac)
                         notifier.notify_leave(bot_token, chat_id, l, aliases, now, label=label, thread_id=thread_id)
 
