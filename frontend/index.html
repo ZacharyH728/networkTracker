@@ -157,7 +157,15 @@
       letter-spacing: 0.06em;
       border-bottom: 1px solid var(--border);
       white-space: nowrap;
+      cursor: pointer;
+      user-select: none;
     }
+
+    th:hover { color: var(--text); }
+
+    th.sort-asc::after  { content: ' ↑'; color: var(--blue); }
+    th.sort-desc::after { content: ' ↓'; color: var(--blue); }
+    th.sort-asc, th.sort-desc { color: var(--text); }
 
     td {
       padding: 9px 14px;
@@ -418,15 +426,15 @@
   <table>
     <thead>
       <tr>
-        <th>Status</th>
-        <th>Label</th>
-        <th>IP</th>
-        <th>Hostname</th>
-        <th>Vendor</th>
-        <th>MAC</th>
-        <th>Last Join</th>
-        <th>Last Leave</th>
-        <th>Last Seen</th>
+        <th data-col="status">Status</th>
+        <th data-col="label">Label</th>
+        <th data-col="ip">IP</th>
+        <th data-col="hostname">Hostname</th>
+        <th data-col="vendor">Vendor</th>
+        <th data-col="mac">MAC</th>
+        <th data-col="last_join">Last Join</th>
+        <th data-col="last_leave">Last Leave</th>
+        <th data-col="last_seen">Last Seen</th>
       </tr>
     </thead>
     <tbody id="tbody">
@@ -453,6 +461,8 @@
   let devices = [];
   let onlineOnly = false;
   let refreshTimer = null;
+  let sortCol = 'status';
+  let sortDir = 'asc';
 
   // ── Fetch & render ────────────────────────────────────────────────
 
@@ -481,6 +491,33 @@
       if (!query) return true;
       return [d.mac, d.ip, d.hostname, d.vendor, d.label]
         .some(v => v && v.toLowerCase().includes(query));
+    });
+
+    // sort
+    const timeVal = ts => ts ? new Date(ts).getTime() : 0;
+    filtered.sort((a, b) => {
+      let va, vb;
+      switch (sortCol) {
+        case 'status':     va = a.is_online ? 0 : 1; vb = b.is_online ? 0 : 1; break;
+        case 'label':      va = (a.label || '').toLowerCase(); vb = (b.label || '').toLowerCase(); break;
+        case 'ip':         va = a.ip.split('.').map(n => n.padStart(3,'0')).join('.'); vb = b.ip.split('.').map(n => n.padStart(3,'0')).join('.'); break;
+        case 'hostname':   va = (a.hostname || '').toLowerCase(); vb = (b.hostname || '').toLowerCase(); break;
+        case 'vendor':     va = (a.vendor || '').toLowerCase(); vb = (b.vendor || '').toLowerCase(); break;
+        case 'mac':        va = a.mac.toLowerCase(); vb = b.mac.toLowerCase(); break;
+        case 'last_join':  va = timeVal(a.last_join);  vb = timeVal(b.last_join);  break;
+        case 'last_leave': va = timeVal(a.last_leave); vb = timeVal(b.last_leave); break;
+        case 'last_seen':  va = timeVal(a.last_seen);  vb = timeVal(b.last_seen);  break;
+        default:           va = 0; vb = 0;
+      }
+      if (va < vb) return sortDir === 'asc' ? -1 : 1;
+      if (va > vb) return sortDir === 'asc' ?  1 : -1;
+      return 0;
+    });
+
+    // update header indicators
+    document.querySelectorAll('th[data-col]').forEach(th => {
+      th.classList.remove('sort-asc', 'sort-desc');
+      if (th.dataset.col === sortCol) th.classList.add(sortDir === 'asc' ? 'sort-asc' : 'sort-desc');
     });
 
     const online = devices.filter(d => d.is_online).length;
@@ -625,7 +662,10 @@
             <div class="ev-type ${ev.event_type}">${ev.event_type === 'join' ? 'Joined' : 'Left'}</div>
             <div class="ev-meta" title="${esc(meta)}">${esc(meta)}</div>
           </div>
-          <div class="ev-time" title="${absTime(ev.timestamp)}">${fmtRel(ev.timestamp)}</div>
+          <div class="ev-time">
+            <div>${fmtRel(ev.timestamp)}</div>
+            <div style="font-size:10px;margin-top:2px;opacity:0.7">${absTime(ev.timestamp)}</div>
+          </div>
         `;
         ul.appendChild(li);
       }
@@ -664,6 +704,19 @@
   }
 
   // ── Init ──────────────────────────────────────────────────────────
+
+  document.querySelectorAll('th[data-col]').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.col;
+      if (sortCol === col) {
+        sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        sortCol = col;
+        sortDir = 'asc';
+      }
+      renderTable();
+    });
+  });
 
   document.getElementById('search').addEventListener('input', renderTable);
 
