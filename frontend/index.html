@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Network Tracker</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0d1117;
+      --surface:  #161b22;
+      --surface2: #1e2430;
+      --border:   #2d333b;
+      --text:     #cdd9e5;
+      --dim:      #768390;
+      --green:    #3fb950;
+      --red:      #f85149;
+      --blue:     #58a6ff;
+      --yellow:   #e3b341;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      font-size: 13px;
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+
+    header h1 {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+    }
+
+    .stats {
+      display: flex;
+      gap: 12px;
+      font-size: 12px;
+    }
+
+    .stat { display: flex; align-items: center; gap: 5px; }
+    .stat-online { color: var(--green); }
+    .stat-offline { color: var(--dim); }
+
+    #refresh-status {
+      margin-left: auto;
+      font-size: 11px;
+      color: var(--dim);
+      white-space: nowrap;
+    }
+
+    /* ── Toolbar ── */
+    .toolbar {
+      padding: 14px 24px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .search-wrap { position: relative; }
+
+    .search-wrap svg {
+      position: absolute;
+      left: 9px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--dim);
+      pointer-events: none;
+    }
+
+    #search {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 13px;
+      padding: 6px 10px 6px 30px;
+      width: 240px;
+      outline: none;
+    }
+
+    #search:focus { border-color: var(--blue); }
+    #search::placeholder { color: var(--dim); }
+
+    .toggle-wrap { display: flex; align-items: center; gap: 6px; color: var(--dim); font-size: 12px; cursor: pointer; user-select: none; }
+
+    .toggle {
+      width: 32px;
+      height: 18px;
+      background: var(--border);
+      border-radius: 9px;
+      position: relative;
+      transition: background 0.2s;
+      cursor: pointer;
+    }
+
+    .toggle.on { background: var(--green); }
+
+    .toggle::after {
+      content: '';
+      position: absolute;
+      width: 12px;
+      height: 12px;
+      background: #fff;
+      border-radius: 50%;
+      top: 3px;
+      left: 3px;
+      transition: left 0.2s;
+    }
+
+    .toggle.on::after { left: 17px; }
+
+    .btn {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      cursor: pointer;
+      font-size: 12px;
+      padding: 6px 12px;
+    }
+
+    .btn:hover { border-color: var(--dim); }
+
+    /* ── Table ── */
+    .table-wrap {
+      margin: 0 24px 24px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow-x: auto;
+    }
+
+    table { width: 100%; border-collapse: collapse; }
+
+    th {
+      text-align: left;
+      padding: 9px 14px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--dim);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    td {
+      padding: 9px 14px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+
+    tbody tr:last-child td { border-bottom: none; }
+
+    tbody tr { cursor: pointer; }
+    tbody tr:hover td { background: var(--surface2); }
+
+    /* ── Status ── */
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .dot-on  { background: var(--green); box-shadow: 0 0 5px var(--green); }
+    .dot-off { background: #3d444d; }
+
+    /* ── Label editing ── */
+    .label-display {
+      border-radius: 4px;
+      padding: 1px 5px;
+      cursor: text;
+      display: inline-block;
+      max-width: 160px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .label-display:hover { background: var(--surface2); outline: 1px dashed var(--border); }
+    .label-display.empty { color: var(--dim); font-style: italic; }
+
+    .label-input {
+      background: var(--surface2);
+      border: 1px solid var(--blue);
+      border-radius: 4px;
+      color: var(--text);
+      font-size: 13px;
+      outline: none;
+      padding: 1px 6px;
+      width: 150px;
+    }
+
+    /* ── Mono / dim ── */
+    .mono { font-family: 'SF Mono', 'Consolas', 'Menlo', monospace; font-size: 11px; color: var(--dim); }
+    .dim  { color: var(--dim); }
+
+    .time-cell { white-space: nowrap; color: var(--dim); font-size: 12px; }
+
+    /* ── Empty / loading ── */
+    .empty-row td {
+      text-align: center;
+      padding: 40px;
+      color: var(--dim);
+    }
+
+    /* ── Drawer ── */
+    .overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.55);
+      z-index: 50;
+    }
+
+    .overlay.open { display: block; }
+
+    .drawer {
+      position: fixed;
+      top: 0;
+      right: 0;
+      transform: translateX(100%);
+      width: 440px;
+      max-width: 100vw;
+      height: 100vh;
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      z-index: 51;
+      display: flex;
+      flex-direction: column;
+      transition: transform 0.22s ease;
+    }
+
+    .drawer.open { transform: translateX(0); }
+
+    .drawer-head {
+      padding: 18px 20px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .drawer-head-info { flex: 1; min-width: 0; }
+
+    #drawer-name {
+      font-size: 15px;
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #drawer-mac {
+      font-size: 11px;
+      color: var(--dim);
+      font-family: monospace;
+      margin-top: 2px;
+    }
+
+    .close-btn {
+      background: none;
+      border: none;
+      color: var(--dim);
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      padding: 2px 4px;
+      flex-shrink: 0;
+    }
+
+    .close-btn:hover { color: var(--text); }
+
+    .drawer-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 20px;
+    }
+
+    /* ── Event timeline ── */
+    .event-list { list-style: none; }
+
+    .event-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 8px 0;
+      position: relative;
+    }
+
+    .event-item:not(:last-child)::before {
+      content: '';
+      position: absolute;
+      left: 7px;
+      top: 22px;
+      bottom: -8px;
+      width: 1px;
+      background: var(--border);
+    }
+
+    .ev-dot {
+      width: 15px;
+      height: 15px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      margin-top: 3px;
+    }
+
+    .ev-dot.join  { background: var(--green); }
+    .ev-dot.leave { background: var(--red); }
+
+    .ev-info { flex: 1; min-width: 0; }
+
+    .ev-type {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .ev-type.join  { color: var(--green); }
+    .ev-type.leave { color: var(--red); }
+
+    .ev-meta {
+      font-size: 11px;
+      color: var(--dim);
+      margin-top: 1px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .ev-time {
+      font-size: 11px;
+      color: var(--dim);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .drawer-empty {
+      text-align: center;
+      color: var(--dim);
+      padding: 40px 0;
+      font-size: 13px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .spinner {
+      width: 18px;
+      height: 18px;
+      border: 2px solid var(--border);
+      border-top-color: var(--blue);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      margin: 40px auto;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Network Tracker</h1>
+  <div class="stats">
+    <span class="stat stat-online">
+      <span class="dot dot-on"></span>
+      <span id="count-online">—</span> online
+    </span>
+    <span class="stat stat-offline">
+      <span id="count-total">—</span> total
+    </span>
+  </div>
+  <span id="refresh-status">Loading…</span>
+</header>
+
+<div class="toolbar">
+  <div class="search-wrap">
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.5"/>
+      <path d="M10 10L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+    <input id="search" type="search" placeholder="Filter devices…" autocomplete="off">
+  </div>
+  <label class="toggle-wrap">
+    <div id="online-toggle" class="toggle"></div>
+    Online only
+  </label>
+  <button class="btn" id="refresh-btn" onclick="refresh()">Refresh</button>
+</div>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Status</th>
+        <th>Label</th>
+        <th>IP</th>
+        <th>Hostname</th>
+        <th>Vendor</th>
+        <th>MAC</th>
+        <th>Last Join</th>
+        <th>Last Leave</th>
+        <th>Last Seen</th>
+      </tr>
+    </thead>
+    <tbody id="tbody">
+      <tr class="empty-row"><td colspan="9"><div class="spinner"></div></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Drawer -->
+<div id="overlay" class="overlay"></div>
+<div id="drawer" class="drawer">
+  <div class="drawer-head">
+    <div class="drawer-head-info">
+      <div id="drawer-name"></div>
+      <div id="drawer-mac"></div>
+    </div>
+    <button class="close-btn" id="close-btn">✕</button>
+  </div>
+  <div class="drawer-body" id="drawer-body">
+  </div>
+</div>
+
+<script>
+  let devices = [];
+  let onlineOnly = false;
+  let refreshTimer = null;
+
+  // ── Fetch & render ────────────────────────────────────────────────
+
+  async function refresh() {
+    document.getElementById('refresh-status').textContent = 'Refreshing…';
+    try {
+      const res = await fetch('/api/devices');
+      if (!res.ok) throw new Error(res.statusText);
+      devices = await res.json();
+      renderTable();
+      document.getElementById('refresh-status').textContent =
+        'Updated ' + fmtRel(new Date().toISOString());
+    } catch (e) {
+      document.getElementById('refresh-status').textContent = 'Error – ' + e.message;
+    }
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(refresh, 30_000);
+  }
+
+  function renderTable() {
+    const query  = document.getElementById('search').value.toLowerCase().trim();
+    const tbody  = document.getElementById('tbody');
+
+    const filtered = devices.filter(d => {
+      if (onlineOnly && !d.is_online) return false;
+      if (!query) return true;
+      return [d.mac, d.ip, d.hostname, d.vendor, d.label]
+        .some(v => v && v.toLowerCase().includes(query));
+    });
+
+    const online = devices.filter(d => d.is_online).length;
+    document.getElementById('count-online').textContent = online;
+    document.getElementById('count-total').textContent  = devices.length;
+
+    if (filtered.length === 0) {
+      tbody.innerHTML = `<tr class="empty-row"><td colspan="9">No devices found</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = '';
+    for (const d of filtered) {
+      const tr = document.createElement('tr');
+
+      tr.innerHTML = `
+        <td>
+          <span class="status">
+            <span class="dot ${d.is_online ? 'dot-on' : 'dot-off'}"></span>
+            ${d.is_online ? 'Online' : 'Offline'}
+          </span>
+        </td>
+        <td class="label-cell" data-mac="${esc(d.mac)}"></td>
+        <td>${esc(d.ip)}</td>
+        <td>${d.hostname ? esc(d.hostname) : '<span class="dim">—</span>'}</td>
+        <td>${d.vendor   ? esc(truncate(d.vendor, 22)) : '<span class="dim">—</span>'}</td>
+        <td class="mono">${esc(d.mac)}</td>
+        <td class="time-cell" title="${absTime(d.last_join)}">${fmtRel(d.last_join)}</td>
+        <td class="time-cell" title="${absTime(d.last_leave)}">${fmtRel(d.last_leave)}</td>
+        <td class="time-cell" title="${absTime(d.last_seen)}">${fmtRel(d.last_seen)}</td>
+      `;
+
+      // build label cell separately (avoid XSS in label value)
+      buildLabelCell(tr.querySelector('.label-cell'), d);
+
+      // open drawer on row click (not label click)
+      tr.addEventListener('click', e => {
+        if (e.target.closest('.label-cell')) return;
+        openDrawer(d);
+      });
+
+      tbody.appendChild(tr);
+    }
+  }
+
+  function buildLabelCell(td, d) {
+    const span = document.createElement('span');
+    span.className = 'label-display' + (d.label ? '' : ' empty');
+    span.textContent = d.label || '+ Add label';
+    span.title = d.label ? 'Click to edit label' : 'Click to add label';
+
+    span.addEventListener('click', e => {
+      e.stopPropagation();
+      startLabelEdit(td, d);
+    });
+
+    td.innerHTML = '';
+    td.appendChild(span);
+  }
+
+  function startLabelEdit(td, d) {
+    const input = document.createElement('input');
+    input.className = 'label-input';
+    input.type = 'text';
+    input.value = d.label || '';
+    input.placeholder = 'Label…';
+    input.maxLength = 64;
+
+    td.innerHTML = '';
+    td.appendChild(input);
+    input.focus();
+    input.select();
+
+    let saved = false;
+
+    async function save() {
+      if (saved) return;
+      saved = true;
+      const val = input.value.trim();
+      try {
+        if (val) {
+          await fetch(`/api/devices/${encodeURIComponent(d.mac)}/label`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ label: val }),
+          });
+          d.label = val;
+        } else if (d.label) {
+          await fetch(`/api/devices/${encodeURIComponent(d.mac)}/label`, { method: 'DELETE' });
+          d.label = null;
+        }
+      } catch (_) {}
+      buildLabelCell(td, d);
+    }
+
+    input.addEventListener('blur', save);
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter')  { input.blur(); }
+      if (e.key === 'Escape') { saved = true; buildLabelCell(td, d); }
+    });
+  }
+
+  // ── Drawer ────────────────────────────────────────────────────────
+
+  function openDrawer(d) {
+    document.getElementById('drawer-name').textContent = d.label || d.ip;
+    document.getElementById('drawer-mac').textContent  = d.mac;
+    document.getElementById('overlay').classList.add('open');
+    document.getElementById('drawer').classList.add('open');
+    loadEvents(d.mac);
+  }
+
+  function closeDrawer() {
+    document.getElementById('overlay').classList.remove('open');
+    document.getElementById('drawer').classList.remove('open');
+  }
+
+  async function loadEvents(mac) {
+    const body = document.getElementById('drawer-body');
+    body.innerHTML = '<div class="spinner"></div>';
+    try {
+      const res = await fetch(`/api/devices/${encodeURIComponent(mac)}/events`);
+      const events = await res.json();
+
+      if (!events.length) {
+        body.innerHTML = '<div class="drawer-empty">No events recorded yet.</div>';
+        return;
+      }
+
+      const ul = document.createElement('ul');
+      ul.className = 'event-list';
+
+      for (const ev of events) {
+        const li = document.createElement('li');
+        li.className = 'event-item';
+
+        const meta = [ev.ip, ev.hostname].filter(Boolean).join(' · ');
+
+        li.innerHTML = `
+          <span class="ev-dot ${ev.event_type}"></span>
+          <div class="ev-info">
+            <div class="ev-type ${ev.event_type}">${ev.event_type === 'join' ? 'Joined' : 'Left'}</div>
+            <div class="ev-meta" title="${esc(meta)}">${esc(meta)}</div>
+          </div>
+          <div class="ev-time" title="${absTime(ev.timestamp)}">${fmtRel(ev.timestamp)}</div>
+        `;
+        ul.appendChild(li);
+      }
+
+      body.innerHTML = '';
+      body.appendChild(ul);
+    } catch (e) {
+      body.innerHTML = `<div class="drawer-empty">Failed to load events.</div>`;
+    }
+  }
+
+  // ── Utilities ─────────────────────────────────────────────────────
+
+  function fmtRel(ts) {
+    if (!ts) return '—';
+    const sec = (Date.now() - new Date(ts)) / 1000;
+    if (sec < 60)      return 'just now';
+    if (sec < 3600)    return Math.floor(sec / 60) + 'm ago';
+    if (sec < 86400)   return Math.floor(sec / 3600) + 'h ago';
+    if (sec < 604800)  return Math.floor(sec / 86400) + 'd ago';
+    return new Date(ts).toLocaleDateString();
+  }
+
+  function absTime(ts) {
+    if (!ts) return '';
+    return new Date(ts).toLocaleString();
+  }
+
+  function esc(str) {
+    if (!str) return '';
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function truncate(str, n) {
+    return str.length > n ? str.slice(0, n - 1) + '…' : str;
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────
+
+  document.getElementById('search').addEventListener('input', renderTable);
+
+  document.getElementById('online-toggle').addEventListener('click', function () {
+    onlineOnly = !onlineOnly;
+    this.classList.toggle('on', onlineOnly);
+    renderTable();
+  });
+
+  document.getElementById('overlay').addEventListener('click', closeDrawer);
+  document.getElementById('close-btn').addEventListener('click', closeDrawer);
+
+  // Keep relative times current without a full re-fetch
+  setInterval(() => {
+    document.querySelectorAll('.time-cell, .ev-time').forEach(el => {
+      const ts = el.getAttribute('title');
+      if (ts) el.textContent = fmtRel(new Date(ts).toISOString());
+    });
+    const now = new Date();
+    // also nudge the "updated X ago" label
+    const s = document.getElementById('refresh-status').textContent;
+    if (s.startsWith('Updated')) {
+      document.getElementById('refresh-status').textContent =
+        'Updated ' + fmtRel(new Date(now - (now % 30_000)).toISOString());
+    }
+  }, 60_000);
+
+  refresh();
+</script>
+</body>
+</html>

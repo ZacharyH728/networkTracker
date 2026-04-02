@@ -12,3 +12,23 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - TZ=Etc/UTC
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data     # shared read/write access to the same SQLite DB
+    environment:
+      - DB_PATH=/app/data/tracker.db
+    expose:
+      - "8000"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    restart: unless-stopped
+    expose:
+      - "80"
